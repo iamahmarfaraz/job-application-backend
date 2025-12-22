@@ -1,8 +1,5 @@
-
-
 CREATE DATABASE IF NOT EXISTS job_portal;
 USE job_portal;
-
 
 CREATE TABLE ApplicationStatus (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -26,18 +23,20 @@ CREATE TABLE Candidates (
     email VARCHAR(150) NOT NULL UNIQUE,
     phone VARCHAR(20),
     totalExperience DECIMAL(4,2),
+    resumeUrl TEXT,
     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 CREATE TABLE Jobs (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    jobCode VARCHAR(50) NOT NULL UNIQUE,
+    jobCode VARCHAR(50) NOT NULL,
     jobTitle VARCHAR(150) NOT NULL,
     jobDescription TEXT NOT NULL,
     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
 CREATE TABLE CandidateSkills (
     id INT PRIMARY KEY AUTO_INCREMENT,
     candidateId INT NOT NULL,
@@ -49,7 +48,6 @@ CREATE TABLE CandidateSkills (
         REFERENCES Candidates(id)
         ON DELETE CASCADE
 );
-
 
 CREATE TABLE CandidateWorkExperience (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -70,7 +68,6 @@ CREATE TABLE Applications (
     id INT PRIMARY KEY AUTO_INCREMENT,
     candidateId INT NOT NULL,
     jobId INT NOT NULL,
-    resumeUrl TEXT NOT NULL,          -- AWS S3 URL
     applicationStatusId INT NOT NULL,
     applicationStageId INT NOT NULL,
     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -96,8 +93,21 @@ CREATE TABLE Applications (
         UNIQUE (candidateId, jobId)
 );
 
-
 CREATE INDEX idx_candidates_email ON Candidates(email);
 CREATE INDEX idx_jobs_jobCode ON Jobs(jobCode);
 CREATE INDEX idx_applications_status ON Applications(applicationStatusId);
 CREATE INDEX idx_applications_stage ON Applications(applicationStageId);
+
+INSERT INTO ApplicationStatus (code) VALUES
+('APPLIED'),
+('REJECTED'),
+('HIRED');
+
+INSERT INTO ApplicationStage (code) VALUES
+('REVIEWING'),
+('SHORTLISTED'),
+('INTERVIEW'),
+('OFFER');
+
+SELECT * FROM ApplicationStatus;
+SELECT * FROM ApplicationStage;
