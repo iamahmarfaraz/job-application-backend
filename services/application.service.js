@@ -61,13 +61,41 @@ async function getApplicationById(applicationId) {
 async function getApplicationsByJob(jobId) {
   const query = `
     SELECT 
-      a.id,
+      a.id AS applicationId,
       a.createdAt,
+
+      c.id AS candidateId,
       c.firstName,
       c.lastName,
       c.email,
-      s.code AS status,
-      st.code AS stage
+      c.totalExperience,
+      c.resumeUrl,
+
+      s.code AS statusCode,
+      s.code AS statusLabel,
+
+      st.code AS stageCode,
+      st.code AS stageLabel,
+
+      (
+        SELECT JSON_ARRAYAGG(cs.skills)
+        FROM CandidateSkills cs
+        WHERE cs.candidateId = c.id
+        ) AS skills,
+
+      (
+        SELECT JSON_ARRAYAGG(
+          JSON_OBJECT(
+            'companyName', we.companyName,
+            'roleTitle', we.roleTitle,
+            'startDate', we.startDate,
+            'endDate', we.endDate
+          )
+        )
+        FROM CandidateWorkExperience we
+        WHERE we.candidateId = c.id
+      ) AS workExperience
+
     FROM Applications a
     JOIN Candidates c ON c.id = a.candidateId
     JOIN ApplicationStatus s ON s.id = a.applicationStatusId
@@ -75,8 +103,17 @@ async function getApplicationsByJob(jobId) {
     WHERE a.jobId = ?
     ORDER BY a.createdAt DESC
   `;
+
   const [rows] = await db.execute(query, [jobId]);
-  return rows;
+
+  return rows.map(row => ({
+    ...row,
+    workExperience: Array.isArray(row.workExperience)
+        ? row.workExperience
+        : row.workExperience
+        ? JSON.parse(row.workExperience)
+        : []
+    }));
 }
 
 async function updateApplicationStatus(applicationId, statusId, stageId) {

@@ -4,6 +4,8 @@ const jobService = require("../services/job.service");
 const mailSender = require("../utils/mailSender");
 const applicationAppliedTemplate = require("../mailTemplates/applicationAppliedTemplate");
 const applicationStatusUpdateTemplate = require("../mailTemplates/applicationStatusUpdateTemplate");
+const { translateApplications } = require("../utils/aiTranslator");
+const { translateStatusStage } = require("../utils/statusStageTranslator");
 
 const DEFAULT_STATUS_ID = 1;
 const DEFAULT_STAGE_ID = 1;
@@ -15,7 +17,7 @@ exports.applyForJob = async (req, res) => {
     if (!candidateId || isNaN(candidateId) || !jobId || isNaN(jobId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid candidate or job id"
+        message: "Invalid candidate or job id",
       });
     }
 
@@ -23,7 +25,7 @@ exports.applyForJob = async (req, res) => {
     if (!candidate) {
       return res.status(404).json({
         success: false,
-        message: "Candidate not found"
+        message: "Candidate not found",
       });
     }
 
@@ -31,7 +33,7 @@ exports.applyForJob = async (req, res) => {
     if (!job) {
       return res.status(404).json({
         success: false,
-        message: "Job not found"
+        message: "Job not found",
       });
     }
 
@@ -43,7 +45,7 @@ exports.applyForJob = async (req, res) => {
     if (alreadyApplied) {
       return res.status(409).json({
         success: false,
-        message: "Already applied for this job"
+        message: "Already applied for this job",
       });
     }
 
@@ -51,7 +53,7 @@ exports.applyForJob = async (req, res) => {
       candidateId,
       jobId,
       applicationStatusId: DEFAULT_STATUS_ID,
-      applicationStageId: DEFAULT_STAGE_ID
+      applicationStageId: DEFAULT_STAGE_ID,
     });
 
     await mailSender(
@@ -63,13 +65,13 @@ exports.applyForJob = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Application submitted successfully",
-      applicationId
+      applicationId,
     });
   } catch (error) {
     console.error("Apply Job Error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
   }
 };
@@ -77,26 +79,42 @@ exports.applyForJob = async (req, res) => {
 exports.getApplicationsByJob = async (req, res) => {
   try {
     const { jobId } = req.params;
+    const lang = req.query.lang || "en";
 
     if (!jobId || isNaN(jobId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid job id"
+        message: "Invalid job id",
       });
     }
 
     const applications = await applicationService.getApplicationsByJob(jobId);
 
+    let finalApplications = applications;
+
+    // Step 1: Local enum translation
+    if (lang !== "en") {
+      finalApplications = finalApplications.map((app) =>
+        translateStatusStage(app, lang)
+      );
+    }
+
+    // Step 2: AI translation (names, skills, experience, etc)
+    finalApplications =
+      lang === "en"
+        ? finalApplications
+        : await translateApplications(finalApplications, lang);
+
     return res.status(200).json({
       success: true,
-      count: applications.length,
-      applications
+      count: finalApplications.length,
+      applications: finalApplications,
     });
   } catch (error) {
     console.error("Get Applications By Job Error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
   }
 };
@@ -108,27 +126,29 @@ exports.getApplicationById = async (req, res) => {
     if (!applicationId || isNaN(applicationId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid application id"
+        message: "Invalid application id",
       });
     }
 
-    const application = await applicationService.getApplicationById(applicationId);
+    const application = await applicationService.getApplicationById(
+      applicationId
+    );
     if (!application) {
       return res.status(404).json({
         success: false,
-        message: "Application not found"
+        message: "Application not found",
       });
     }
 
     return res.status(200).json({
       success: true,
-      application
+      application,
     });
   } catch (error) {
     console.error("Get Application Error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
   }
 };
@@ -141,22 +161,24 @@ exports.updateApplicationStatus = async (req, res) => {
     if (!applicationId || isNaN(applicationId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid application id"
+        message: "Invalid application id",
       });
     }
 
     if (!applicationStatusId || !applicationStageId) {
       return res.status(400).json({
         success: false,
-        message: "Status and stage are required"
+        message: "Status and stage are required",
       });
     }
 
-    const application = await applicationService.getApplicationById(applicationId);
+    const application = await applicationService.getApplicationById(
+      applicationId
+    );
     if (!application) {
       return res.status(404).json({
         success: false,
-        message: "Application not found"
+        message: "Application not found",
       });
     }
 
@@ -166,7 +188,9 @@ exports.updateApplicationStatus = async (req, res) => {
       applicationStageId
     );
 
-    const candidate = await candidateService.getCandidateById(application.candidateId);
+    const candidate = await candidateService.getCandidateById(
+      application.candidateId
+    );
 
     await mailSender(
       candidate.email,
@@ -176,13 +200,13 @@ exports.updateApplicationStatus = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Application status updated successfully"
+      message: "Application status updated successfully",
     });
   } catch (error) {
     console.error("Update Application Status Error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
   }
 };
@@ -194,22 +218,24 @@ exports.getApplicationsByCandidate = async (req, res) => {
     if (!candidateId || isNaN(candidateId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid candidate id"
+        message: "Invalid candidate id",
       });
     }
 
-    const applications = await applicationService.getApplicationsByCandidate(candidateId);
+    const applications = await applicationService.getApplicationsByCandidate(
+      candidateId
+    );
 
     return res.status(200).json({
       success: true,
       count: applications.length,
-      applications
+      applications,
     });
   } catch (error) {
     console.error("Get Applications By Candidate Error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
   }
 };
