@@ -8,10 +8,12 @@ const {
   getCandidateById,
   listCandidates,
   updateCandidate,
-  deleteCandidate
+  deleteCandidate,
+  getCandidatesByCreatedAtRange
 } = require("../controllers/candidate.controller");
 
 router.post("/createCandidate", upload.single("resume"), createCandidate);
+router.get("/filter/by-date", getCandidatesByCreatedAtRange);
 router.get("/", listCandidates);
 router.get("/:candidateId", getCandidateById);
 router.put("/:candidateId", upload.single("resume"), updateCandidate);

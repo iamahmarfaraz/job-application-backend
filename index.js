@@ -16,6 +16,15 @@ app.get("/health", async (req, res) => {
   res.json({ status: "OK", db: rows.length === 1 });
 });
 
+const {
+  preloadAllCandidatesToCache
+} = require("./services/candidate.service");
+
+(async () => {
+  // nort recommended
+  // await preloadAllCandidatesToCache();
+})();
+
 app.use("/api/v1/jobs", jobRoutes);
 app.use("/api/v1/candidates", candidateRoutes);
 app.use("/api/v1/applications", applicationRoutes);

@@ -222,3 +222,35 @@ exports.deleteCandidate = async (req, res) => {
     });
   }
 };
+
+exports.getCandidatesByCreatedAtRange = async (req, res) => {
+  try {
+    const { from, to, limit, offset } = req.query;
+
+    if (!from || !to) {
+      return res.status(400).json({
+        success: false,
+        message: "from and to dates are required"
+      });
+    }
+
+    const candidates = await candidateService.getCandidatesByCreatedAtRange({
+      fromDate: from,
+      toDate: to,
+      limit: parseInt(limit) || 50,
+      offset: parseInt(offset) || 0
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: candidates.length,
+      candidates
+    });
+  } catch (error) {
+    console.error("Get Candidates By Date Range Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};

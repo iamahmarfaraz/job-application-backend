@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const candidateCache = require("../cache/candidate.cache");
 
 async function createCandidate({
   firstName,
@@ -9,7 +10,7 @@ async function createCandidate({
   totalExperience,
   resumeUrl,
   skills = [],
-  workExperience = []
+  workExperience = [],
 }) {
   const connection = await db.getConnection();
   try {
@@ -28,7 +29,7 @@ async function createCandidate({
       email,
       phone || null,
       totalExperience || null,
-      resumeUrl
+      resumeUrl,
     ]);
 
     const candidateId = candidateResult.insertId;
@@ -38,7 +39,7 @@ async function createCandidate({
         INSERT INTO CandidateSkills (candidateId, skills)
         VALUES ?
       `;
-      const skillValues = skills.map(s => [candidateId, s]);
+      const skillValues = skills.map((s) => [candidateId, s]);
       await connection.query(skillsQuery, [skillValues]);
     }
 
@@ -48,17 +49,36 @@ async function createCandidate({
         (candidateId, companyName, roleTitle, startDate, endDate)
         VALUES ?
       `;
-      const expValues = workExperience.map(e => [
+      const expValues = workExperience.map((e) => [
         candidateId,
         e.companyName || null,
         e.roleTitle || null,
         e.startDate || null,
-        e.endDate || null
+        e.endDate || null,
       ]);
       await connection.query(expQuery, [expValues]);
     }
 
     await connection.commit();
+
+    const cachedCandidate = {
+      id: candidateId,
+      firstName,
+      middleName: middleName || null,
+      lastName,
+      email,
+      phone: phone || null,
+      totalExperience: totalExperience || null,
+      resumeUrl,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      skills,
+      workExperience,
+    };
+
+    //cached
+    candidateCache.set(candidateId, cachedCandidate);
+
     return candidateId;
   } catch (error) {
     await connection.rollback();
@@ -69,6 +89,12 @@ async function createCandidate({
 }
 
 async function getCandidateById(candidateId) {
+  if (candidateCache.has(candidateId)) {
+    console.log("Serving from cached memory");
+
+    return candidateCache.get(candidateId);
+  }
+
   const candidateQuery = `
     SELECT *
     FROM Candidates
@@ -84,25 +110,41 @@ async function getCandidateById(candidateId) {
 
   const [experience] = await db.execute(
     `SELECT companyName, roleTitle, startDate, endDate
-     FROM CandidateWorkExperience WHERE candidateId = ?`,
+     FROM CandidateWorkExperience
+     WHERE candidateId = ?`,
     [candidateId]
   );
 
-  return {
+  const candidate = {
     ...rows[0],
-    skills: skills.map(s => s.skills),
-    workExperience: experience
+    skills: skills.map((s) => s.skills),
+    workExperience: experience,
   };
+
+  //  o(1)
+  candidateCache.set(candidateId, candidate);
+
+  return candidate;
 }
 
 async function getCandidateByEmail(email) {
-  const query = `
-    SELECT *
-    FROM Candidates
-    WHERE email = ?
-  `;
-  const [rows] = await db.execute(query, [email]);
-  return rows[0] || null;
+  const [rows] = await db.execute(
+    "SELECT id FROM Candidates WHERE email = ? LIMIT 1",
+    [email]
+  );
+
+  if (!rows.length) return null;
+
+  const candidateId = rows[0].id;
+
+  if (candidateCache.has(candidateId)) {
+    return candidateCache.get(candidateId);
+  }
+
+  const candidate = await getCandidateById(candidateId);
+
+  // getCandidateById should set cache internally by getCandidateById
+  return candidate;
 }
 
 async function listCandidates({ limit = 20, offset = 0 }) {
@@ -118,7 +160,6 @@ async function listCandidates({ limit = 20, offset = 0 }) {
   const [rows] = await db.query(query);
   return rows;
 }
-
 
 async function updateCandidate(candidateId, updates) {
   const connection = await db.getConnection();
@@ -190,7 +231,13 @@ async function updateCandidate(candidateId, updates) {
     }
 
     await connection.commit();
+
+    const updatedCandidate = await getCandidateById(candidateId);
+
+    candidateCache.set(candidateId, updatedCandidate);
+
     return true;
+
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -205,7 +252,78 @@ async function deleteCandidate(candidateId) {
     WHERE id = ?
   `;
   const [result] = await db.execute(query, [candidateId]);
-  return result.affectedRows > 0;
+
+  if (result.affectedRows > 0) {
+    candidateCache.delete(candidateId);
+    return true;
+  }
+
+  return false;
+}
+
+async function getCandidatesByCreatedAtRange({
+  fromDate,
+  toDate,
+  limit = 50,
+  offset = 0,
+}) {
+  if (!fromDate || !toDate) {
+    throw new Error("fromDate and toDate are required");
+  }
+
+  // HARD sanitize (prevents SQL injection)
+  limit = Number.isInteger(limit) && limit > 0 ? limit : 50;
+  offset = Number.isInteger(offset) && offset >= 0 ? offset : 0;
+
+  const query = `
+    SELECT 
+      id,
+      firstName,
+      lastName,
+      email,
+      totalExperience,
+      resumeUrl,
+      createdAt
+    FROM Candidates
+    WHERE createdAt BETWEEN ? AND ?
+    ORDER BY createdAt DESC
+    LIMIT ${offset}, ${limit}
+  `;
+
+  const [rows] = await db.execute(query, [fromDate, toDate]);
+  return rows;
+}
+
+// not prod thing
+async function preloadAllCandidatesToCache() {
+  const query = `
+    SELECT *
+    FROM Candidates
+  `;
+
+  const [rows] = await db.execute(query);
+
+  for (const row of rows) {
+    const [skills] = await db.execute(
+      `SELECT skills FROM CandidateSkills WHERE candidateId = ?`,
+      [row.id]
+    );
+
+    const [experience] = await db.execute(
+      `SELECT companyName, roleTitle, startDate, endDate
+       FROM CandidateWorkExperience
+       WHERE candidateId = ?`,
+      [row.id]
+    );
+
+    candidateCache.set(row.id, {
+      ...row,
+      skills: skills.map(s => s.skills),
+      workExperience: experience
+    });
+  }
+
+  console.log(`⚠️ Preloaded ${rows.length} candidates into cache`);
 }
 
 module.exports = {
@@ -214,5 +332,7 @@ module.exports = {
   getCandidateByEmail,
   listCandidates,
   updateCandidate,
-  deleteCandidate
+  deleteCandidate,
+  getCandidatesByCreatedAtRange,
+  preloadAllCandidatesToCache
 };

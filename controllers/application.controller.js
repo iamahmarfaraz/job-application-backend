@@ -239,3 +239,4 @@ exports.getApplicationsByCandidate = async (req, res) => {
     });
   }
 };
+
